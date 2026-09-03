@@ -6,7 +6,7 @@ import { FacilityModel } from '../models/Facility';
 const router = Router();
 
 const VALID_TYPES = [
-  'Hospital',
+  'BloodBank',
   'Pharmacy',
   'Ambulance',
   'Urgent Care',
@@ -22,7 +22,7 @@ function isFacilityType(value: unknown): value is FacilityType {
 }
 
 // GET /api/facilities
-// Optional ?type=Hospital|Pharmacy|Ambulance|Urgent Care filter.
+// Optional ?type=BloodBank|Pharmacy|Ambulance|Urgent Care filter.
 router.get('/', requireAuth, async (req, res) => {
   const { type } = req.query;
 

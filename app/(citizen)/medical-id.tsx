@@ -44,7 +44,7 @@ export default function MedicalIdScreen() {
         style: 'destructive',
         onPress: async () => {
           await signOut();
-          router.replace('/auth');
+          router.replace('/(auth)/login');
         },
       },
     ]);

@@ -5,6 +5,7 @@ import {
   Image,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, {
@@ -17,10 +18,14 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getCurrentUser } from '@/services/appData';
+import { getCurrentUser, isRoleProfileSetup } from '@/services/appData';
+import { getHomeRouteForRole, getProfileSetupRouteForRole } from '@/services/roleRoutes';
 
 export default function SplashScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 700;
+  const logoSize = Math.min(width * 0.34, isTablet ? 180 : 140);
 
   const scale = useSharedValue(1);
 
@@ -69,10 +74,11 @@ export default function SplashScreen() {
 
         if (user) {
           // Already logged in
-          router.replace('/(tabs)/vitals');
+          const setup = await isUserProfileSetup(user);
+          router.replace(setup ? getHomeRouteForRole(user.role) : getProfileSetupRouteForRole(user.role));
         } else {
           // Not logged in
-          router.replace('/auth');
+          router.replace('/(auth)/login');
         }
       } catch (error) {
         console.log('Login check failed:', error);
@@ -81,7 +87,7 @@ export default function SplashScreen() {
 
         // If checking the session fails,
         // send the user to login.
-        router.replace('/auth');
+        router.replace('/(auth)/login');
       }
     };
 
@@ -98,11 +104,12 @@ export default function SplashScreen() {
       <View style={styles.blurTop} />
       <View style={styles.blurBottom} />
 
-      <View style={styles.content}>
+      <View style={[styles.content, isTablet && styles.contentTablet]}>
         {/* Logo */}
         <Animated.View
           style={[
             styles.logoCard,
+            { width: logoSize, height: logoSize },
             logoAnimatedStyle,
           ]}
         >
@@ -153,11 +160,15 @@ const styles = StyleSheet.create({
   content: {
     alignItems: 'center',
     paddingHorizontal: 24,
+    width: '100%',
+    maxWidth: 480,
+  },
+
+  contentTablet: {
+    paddingHorizontal: 48,
   },
 
   logoCard: {
-    width: 140,
-    height: 140,
     borderRadius: 16,
 
     backgroundColor: '#ffffff',

@@ -1,4 +1,5 @@
 import { getActiveSession, isProfileComplete, signIn, signUp } from '@/services/appData';
+import { getHomeRouteForRole, getProfileSetupRouteForRole } from '@/services/roleRoutes';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -19,12 +20,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 const roles = [
   { id: 'citizen', label: 'Citizen', icon: 'person' },
   { id: 'ambulance', label: 'Ambulance', icon: 'car' },
-  { id: 'hospital', label: 'Hospital', icon: 'medkit' },
+  { id: 'BloodBank', label: 'BloodBank', icon: 'water' },
   { id: 'government', label: 'Government', icon: 'business' },
 ] as const;
 
 export default function AuthScreen() {
-  const [selectedRole, setSelectedRole] = useState<'citizen' | 'ambulance' | 'hospital' | 'government'>('citizen');
+  const [selectedRole, setSelectedRole] = useState<'citizen' | 'ambulance' | 'BloodBank' | 'government'>('citizen');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -36,7 +37,7 @@ export default function AuthScreen() {
     const bootstrapSession = async () => {
       const session = await getActiveSession();
       if (session) {
-        router.replace(isProfileComplete(session.profile) ? '/(tabs)/vitals' : '/Profile-setup');
+        router.replace(isProfileComplete(session.profile) ? getHomeRouteForRole(session.role) : getProfileSetupRouteForRole(session.role));
       }
     };
 
@@ -61,10 +62,10 @@ export default function AuthScreen() {
 
         user = await signUp({ email, password, role: selectedRole, name });
       } else {
-        user = await signIn(email, password);
+        user = await signIn(email, password, selectedRole);
       }
 
-      router.replace(isProfileComplete(user.profile) ? '/(tabs)/vitals' : '/Profile-setup');
+      router.replace(isProfileComplete(user.profile) ? getHomeRouteForRole(user.role) : getProfileSetupRouteForRole(user.role));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to complete the request.';
       Alert.alert('Authentication issue', message);
@@ -227,7 +228,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   brandingText: {
-    fontSize: 20,
+    fontSize: 30,
     fontWeight: '700',
     color: '#031632',
   },

@@ -70,7 +70,7 @@ export default function MedicaScreen() {
 
   const askMedicaAI = async (message: string) => {
   try {
-    const response = await fetch(`${API_URL}/api/medica`, {
+    const response = await fetch(`${API_URL}/medica`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

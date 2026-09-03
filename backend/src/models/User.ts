@@ -75,7 +75,7 @@ const UserSchema = new Schema<UserDocument>(
     role: {
       type: String,
       required: true,
-      enum: ['citizen', 'ambulance', 'hospital', 'government'],
+      enum: ['citizen', 'ambulance', 'BloodBank', 'government'],
     },
     profile: { type: MedicalProfileSchema, required: true },
   },

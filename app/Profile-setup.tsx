@@ -1,4 +1,5 @@
 import { Allergy, Condition, Contact, getCurrentUser, isProfileComplete, Medication, saveLocalAvatar, updateProfile, } from '@/services/appData';
+import { getHomeRouteForRole } from '@/services/roleRoutes';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
@@ -195,7 +196,7 @@ export default function ProfileSetupScreen() {
         if (isEditMode) {
           router.back();
         } else {
-          router.replace('/(tabs)/vitals');
+          router.replace(getHomeRouteForRole(user.role));
         }
       } else {
         Alert.alert('Almost there', 'Please double check the required fields.');
@@ -502,7 +503,7 @@ export default function ProfileSetupScreen() {
               style={[styles.input, styles.spacedInput]}
               value={physicianClinic}
               onChangeText={setPhysicianClinic}
-              placeholder="Clinic / hospital"
+              placeholder="Clinic / BloodBank"
               placeholderTextColor="#75777e"
             />
             <TextInput

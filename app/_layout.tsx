@@ -59,14 +59,35 @@ export default function RootLayout() {
         />
 
         <Stack.Screen
-          name="auth"
+          name="(citizen)"
           options={{
             headerShown: false,
           }}
         />
 
         <Stack.Screen
-          name="(tabs)"
+          name="(ambulance)"
+          options={{
+            headerShown: false,
+          }}
+        />
+
+        <Stack.Screen
+          name="(bloodbank)"
+          options={{
+            headerShown: false,
+          }}
+        />
+
+        <Stack.Screen
+          name="(government)"
+          options={{
+            headerShown: false,
+          }}
+        />
+
+        <Stack.Screen
+          name="(auth)"
           options={{
             headerShown: false,
           }}

@@ -2,7 +2,7 @@ import { Schema, model, Document } from 'mongoose';
 
 export interface FacilityDocument extends Document {
   name: string;
-  type: 'Hospital' | 'Pharmacy' | 'Ambulance' | 'Urgent Care';
+  type: 'BloodBank' | 'Pharmacy' | 'Ambulance' | 'Urgent Care';
   distance: string;
   status: string;
   lat: number;
@@ -14,7 +14,7 @@ const FacilitySchema = new Schema<FacilityDocument>({
   type: {
     type: String,
     required: true,
-    enum: ['Hospital', 'Pharmacy', 'Ambulance', 'Urgent Care'],
+    enum: ['BloodBank', 'Pharmacy', 'Ambulance', 'Urgent Care'],
   },
   distance: String,
   status: String,

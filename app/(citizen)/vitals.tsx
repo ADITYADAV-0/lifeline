@@ -410,6 +410,14 @@ export default function VitalsScreen() {
       Vibration.cancel();
     });
 
+    socket.on('case:closed', () => {
+      emergencySentRef.current = false;
+      warningActiveRef.current = false;
+      setAccidentStatus('ACTIVE');
+      setConfirmationVisible(false);
+      Alert.alert('Case Closed', 'Hospital arrival confirmed. Emergency case closed.');
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;

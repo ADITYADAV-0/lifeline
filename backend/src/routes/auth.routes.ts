@@ -8,7 +8,7 @@ import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { UserRole } from '../types';
 
 const router = Router();
-const VALID_ROLES: UserRole[] = ['citizen', 'ambulance', 'hospital', 'government'];
+const VALID_ROLES: UserRole[] = ['citizen', 'ambulance', 'BloodBank', 'government'];
 const SALT_ROUNDS = 10;
 
 // POST /api/auth/signup

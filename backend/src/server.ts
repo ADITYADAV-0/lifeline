@@ -5,16 +5,21 @@ import { Server as SocketIOServer } from 'socket.io';
 import { createApp } from './app';
 import { config } from './config';
 import { connectDB } from './db';
-import { detectAccident } from './detection/accidentDetector';
-import { createAccidentEmergency } from './services/emergencyService';
 import {
-  cancelEmergency,
-  getAllEmergencies,
-  getEmergency,
-  getPreviousReading,
-  saveReading,
+    acceptCase,
+    calculateRendezvousPoint,
+    createEmergencyCase,
+    getActiveCase,
+    getLedgerEntries,
+    reserveBlood,
+    submitIntake,
+    verifyHandover,
+} from './services/caseService';
+import {
+    cancelEmergency,
+    getAllEmergencies,
+    getEmergency,
 } from './services/memoryStore';
-import { SensorReading } from './types';
 
 const ai = new GoogleGenAI({
   apiKey: config.medicaApiKey,
@@ -77,9 +82,10 @@ For normal symptoms:
       model: 'gemini-3.6-flash',
       contents: prompt,
     });
+    const reply = result.text || 'I understand your concern. Please provide more details so I can help better.';
 
     return res.json({
-      reply: result.text,
+      reply: reply.trim(),
     });
   } catch (error) {
     console.error('Medica Gemini error:', error);
@@ -148,53 +154,160 @@ For normal symptoms:
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // Unified LifeLine Emergency Case Endpoints
+  // ---------------------------------------------------------------------------
+
+  app.get('/api/cases', (_req, res) => {
+    const { getAllActiveCases } = require('./services/caseService');
+    res.json({
+      success: true,
+      cases: getAllActiveCases(),
+    });
+  });
+
   app.post('/api/sos', (req, res) => {
-    const { userId, latitude, longitude, accuracy, reason } = req.body;
+    const { userId, userName, bloodType, latitude, longitude } = req.body;
 
-    if (!userId || typeof latitude !== 'number' || typeof longitude !== 'number') {
-      return res.status(400).json({
-        success: false,
-        message: 'userId, latitude and longitude are required',
-      });
-    }
-
-    const reading: SensorReading = {
-      userId,
-      timestamp: Date.now(),
-      accelerometer: {
-        x: 0,
-        y: 0,
-        z: 9.81,
+    const newCase = createEmergencyCase({
+      citizenId: userId || 'USER-101',
+      citizenName: userName || 'David K. Miller',
+      bloodType: bloodType || 'O-Negative',
+      location: {
+        latitude: latitude || 37.7749,
+        longitude: longitude || -122.4194,
+        address: '450 Mission St, Financial District',
       },
-      gyroscope: {
-        x: 0,
-        y: 0,
-        z: 0,
-      },
-      gps: {
-        latitude,
-        longitude,
-        accuracy,
-        speed: 0,
-      },
-    };
-
-    const result = createAccidentEmergency(reading, {
-      score: 100,
-      status: 'EMERGENCY',
-      factors: [reason === 'AUTO_ACCIDENT' ? 'AUTO_ACCIDENT' : 'MANUAL_SOS'],
-      accelerationMagnitude: 9.81,
-      rotationMagnitude: 0,
-      speed: 0,
     });
 
-    io.emit('emergency:created', result);
-    io.emit('ambulance:emergency', result);
+    // Broadcast case creation across ALL roles simultaneously
+    io.emit('case:created', newCase);
+    io.emit('ambulance:emergency', newCase);
+    io.emit('government:case_update', newCase);
 
     return res.json({
       success: true,
-      ...result,
+      case: newCase,
+      ledger: getLedgerEntries(),
     });
+  });
+
+  app.post('/api/cases/:id/accept', (req, res) => {
+    const { ambulanceId, ambulanceLoc } = req.body;
+    try {
+      const updatedCase = acceptCase(
+        req.params.id,
+        ambulanceId || 'AMB-101',
+        ambulanceLoc || { latitude: 37.7833, longitude: -122.4167 },
+      );
+
+      // Broadcast to Citizen, Ambulance, and Government
+      io.emit('case:accepted', updatedCase);
+      io.emit('case:live_update', updatedCase);
+
+      return res.json({ success: true, case: updatedCase });
+    } catch (err: any) {
+      return res.status(404).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/cases/:id/intake', (req, res) => {
+    try {
+      const updatedCase = submitIntake(req.params.id, req.body);
+      io.emit('intake:submitted', updatedCase);
+      return res.json({ success: true, case: updatedCase });
+    } catch (err: any) {
+      return res.status(404).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/cases/:id/reserve-blood', (req, res) => {
+    const {
+      bloodType,
+      units,
+      bloodBankId,
+      bloodBankName,
+      ambulanceLocation,
+      bloodBankLocation,
+      targetBloodBankLocation,
+    } = req.body;
+
+    try {
+      const result = reserveBlood({
+        caseId: req.params.id,
+        bloodType: bloodType || 'O-Negative',
+        units: units || 4,
+        bloodBankId: bloodBankId || 'BB-CENTRAL',
+        bloodBankName: bloodBankName || 'Central Health Regional Blood Bank',
+        ambulanceLocation: ambulanceLocation || { latitude: 37.7780, longitude: -122.4180 },
+        bloodBankLocation: bloodBankLocation || { latitude: 37.7850, longitude: -122.4100 },
+        targetBloodBankLocation: targetBloodBankLocation || { latitude: 37.7900, longitude: -122.4050 },
+      });
+
+      // INSTANT BROADCAST TO BLOOD BANK ROLE (Triggers Pop-up Alert on Blood Bank Dashboard)
+      io.emit('blood:reservation_alert', {
+        reservation: result.reservation,
+        case: result.updatedCase,
+        rendezvousPoint: result.updatedCase.rendezvousPoint,
+      });
+
+      // Broadcast updated rendezvous marker to Citizen & Ambulance maps
+      io.emit('case:live_update', result.updatedCase);
+      io.emit('ledger:new_block', getLedgerEntries());
+
+      return res.json({
+        success: true,
+        reservation: result.reservation,
+        case: result.updatedCase,
+        ledger: getLedgerEntries(),
+      });
+    } catch (err: any) {
+      return res.status(404).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/cases/verify-qr', (req, res) => {
+    const { qrToken } = req.body;
+    try {
+      const result = verifyHandover(qrToken || 'LIFELINE-QR');
+
+      // Simultaneous status update on Ambulance & Blood Bank screens
+      io.emit('handover:completed', {
+        reservation: result.reservation,
+        case: result.updatedCase,
+      });
+      io.emit('case:live_update', result.updatedCase);
+      io.emit('ledger:new_block', getLedgerEntries());
+
+      return res.json({
+        success: true,
+        verified: true,
+        reservation: result.reservation,
+        case: result.updatedCase,
+        ledger: getLedgerEntries(),
+      });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/cases/:id/close', (req, res) => {
+    try {
+      const { closeCase } = require('./services/caseService');
+      const updatedCase = closeCase(req.params.id, req.body);
+      
+      io.emit('case:closed', updatedCase);
+      io.emit('case:live_update', updatedCase);
+      io.emit('ledger:new_block', getLedgerEntries());
+
+      return res.json({ success: true, case: updatedCase, ledger: getLedgerEntries() });
+    } catch (err: any) {
+      return res.status(404).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get('/api/cases/ledger', (_req, res) => {
+    res.json({ success: true, ledger: getLedgerEntries() });
   });
 
   io.on('connection', (socket) => {
@@ -210,39 +323,18 @@ For normal symptoms:
       console.log(`Ambulance ${ambulanceId} connected`);
     });
 
-    socket.on('sensor:reading', (reading: SensorReading) => {
-      try {
-        const previous = getPreviousReading(reading.userId);
-        const detection = detectAccident(reading, previous);
-
-        saveReading(reading.userId, reading);
-
-        io.to(`user:${reading.userId}`).emit('detection:update', detection);
-
-        if (
-          detection.status === 'POSSIBLE_ACCIDENT' ||
-          detection.status === 'EMERGENCY'
-        ) {
-          io.to(`user:${reading.userId}`).emit('accident:warning', {
-            message: 'Possible accident detected. Are you okay?',
-            countdown: 15,
-            detection,
-          });
-        }
-      } catch (error) {
-        console.error('Sensor processing error:', error);
-        socket.emit('server:error', {
-          message: 'Unable to process sensor data',
-        });
+    socket.on('location:update', (data: { caseId: string; ambulanceLoc: any; courierLoc: any }) => {
+      const activeCase = getActiveCase(data.caseId);
+      if (activeCase && data.ambulanceLoc && data.courierLoc) {
+        activeCase.ambulanceLocation = data.ambulanceLoc;
+        activeCase.courierLocation = data.courierLoc;
+        activeCase.rendezvousPoint = calculateRendezvousPoint(
+          data.ambulanceLoc,
+          data.courierLoc,
+          { latitude: 37.7900, longitude: -122.4050 },
+        );
+        io.emit('case:live_update', activeCase);
       }
-    });
-
-    socket.on('location:update', (data: { userId: string; latitude: number; longitude: number }) => {
-      io.emit('user:location', data);
-    });
-
-    socket.on('ambulance:location', (data) => {
-      io.emit('ambulance:location', data);
     });
 
     socket.on('disconnect', () => {

@@ -29,7 +29,7 @@ import MapView, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { io, Socket } from 'socket.io-client';
 
-type FilterId = 'hospitals' | 'pharmacies' | 'ambulances' | 'urgent_care';
+type FilterId = 'BloodBanks' | 'pharmacies' | 'ambulances' | 'urgent_care';
 
 type UserLocation = {
   latitude: number;
@@ -55,21 +55,21 @@ const filterChips: {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
 }[] = [
-    { id: 'hospitals', label: 'Hospitals', icon: 'business' },
+    { id: 'BloodBanks', label: 'BloodBanks', icon: 'business' },
     { id: 'pharmacies', label: 'Pharmacies', icon: 'medkit' },
     { id: 'ambulances', label: 'Ambulances', icon: 'car' },
     { id: 'urgent_care', label: 'Urgent Care', icon: 'medical' },
   ];
 
 const facilityTypeByFilter: Record<FilterId, Facility['type']> = {
-  hospitals: 'Hospital',
+  BloodBanks: 'BloodBank',
   pharmacies: 'Pharmacy',
   ambulances: 'Ambulance',
   urgent_care: 'Urgent Care',
 };
 
 function getFacilityIcon(type: Facility['type']): keyof typeof Ionicons.glyphMap {
-  if (type === 'Hospital') return 'business';
+  if (type === 'BloodBank') return 'business';
   if (type === 'Pharmacy') return 'medkit';
   if (type === 'Ambulance') return 'car';
   return 'medical';
@@ -175,12 +175,39 @@ export default function MapScreen() {
     };
   }, []);
 
+  const [rendezvousPoint, setRendezvousPoint] = useState<{
+    latitude: number;
+    longitude: number;
+    address: string;
+    etaMinutes: number;
+  } | null>(null);
+
   useEffect(() => {
     const socket = io(API_ORIGIN_URL, {
       transports: ['websocket'],
     });
 
     socketRef.current = socket;
+
+    socket.on('case:live_update', (activeCase: any) => {
+      if (activeCase?.rendezvousPoint) {
+        setRendezvousPoint(activeCase.rendezvousPoint);
+      }
+      if (activeCase?.ambulanceLocation) {
+        setAmbulances((current) =>
+          current.map((amb) =>
+            amb.id === (activeCase.assignedAmbulanceId || 'AMB-101')
+              ? {
+                  ...amb,
+                  latitude: activeCase.ambulanceLocation.latitude,
+                  longitude: activeCase.ambulanceLocation.longitude,
+                  status: 'DISPATCHED',
+                }
+              : amb,
+          ),
+        );
+      }
+    });
 
     socket.on(
       'ambulance:location',
@@ -206,7 +233,7 @@ export default function MapScreen() {
                 latitude: update.latitude,
                 longitude: update.longitude,
                 status: update.status ?? 'AVAILABLE',
-                hospitalName: update.hospitalName ?? 'LifeLine Network',
+                BloodBankName: update.BloodBankName ?? 'LifeLine Network',
                 equipment: update.equipment ?? [],
               },
             ];
@@ -292,7 +319,7 @@ export default function MapScreen() {
           <Ionicons name="search" color="#75777e" size={20} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search hospitals, pharmacies..."
+            placeholder="Search BloodBanks, pharmacies..."
             placeholderTextColor="#75777e"
             value={search}
             onChangeText={setSearch}
@@ -398,7 +425,7 @@ export default function MapScreen() {
                 longitude: ambulance.longitude,
               }}
               title={ambulance.name}
-              description={`${ambulance.status} - ${ambulance.hospitalName}`}
+              description={`${ambulance.status} - ${ambulance.BloodBankName}`}
             >
               <View
                 style={[
@@ -411,6 +438,21 @@ export default function MapScreen() {
               </View>
             </Marker>
           ))}
+
+          {rendezvousPoint && (
+            <Marker
+              coordinate={{
+                latitude: rendezvousPoint.latitude,
+                longitude: rendezvousPoint.longitude,
+              }}
+              title="Dynamic Rendezvous Point"
+              description={`ETA: ${rendezvousPoint.etaMinutes} mins • ${rendezvousPoint.address}`}
+            >
+              <View style={[styles.facilityMarker, { backgroundColor: '#d97706', borderColor: '#ffffff', borderWidth: 2 }]}>
+                <Ionicons name="water" size={22} color="#ffffff" />
+              </View>
+            </Marker>
+          )}
         </MapView>
 
         {activeFacility && selectedFilter !== 'ambulances' && (

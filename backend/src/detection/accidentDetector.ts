@@ -42,9 +42,9 @@ export function detectAccident(
    * Acceleration magnitude is measured in m/s².
    *
    * Normal gravity ≈ 9.81 m/s².
-   *
-   * A sudden high magnitude can indicate a collision,
-   * but should NEVER be considered proof by itself.
+   * Normal movement: 9.8 - 15 m/s² (1 - 1.5G)
+   * Sudden impact / hard brake: > 20 m/s² (~2.0G+)
+   * Severe impact / crash: > 25 m/s² (~2.5G+)
    */
 
   const accelerationMagnitude = magnitude(
@@ -53,11 +53,11 @@ export function detectAccident(
     current.accelerometer.z,
   );
 
-  if (accelerationMagnitude > 25) {
-    score += 35;
+  if (accelerationMagnitude > 22) {
+    score += 40;
     factors.push('HIGH_ACCELERATION');
-  } else if (accelerationMagnitude > 18) {
-    score += 20;
+  } else if (accelerationMagnitude > 16) {
+    score += 25;
     factors.push('ABNORMAL_ACCELERATION');
   }
 

@@ -8,7 +8,7 @@ const ambulances: Ambulance[] = [
     latitude: 26.8467,
     longitude: 80.9462,
     status: 'AVAILABLE',
-    hospitalName: 'City Emergency Hospital',
+    BloodBankName: 'City Emergency BloodBank',
     equipment: [
       'Oxygen',
       'Cardiac Monitor',
@@ -23,7 +23,7 @@ const ambulances: Ambulance[] = [
     latitude: 26.8650,
     longitude: 80.9500,
     status: 'AVAILABLE',
-    hospitalName: 'Apollo Emergency Center',
+    BloodBankName: 'Apollo Emergency Center',
     equipment: [
       'Oxygen',
       'Ventilator',
@@ -38,7 +38,7 @@ const ambulances: Ambulance[] = [
     latitude: 26.8200,
     longitude: 80.9000,
     status: 'BUSY',
-    hospitalName: 'Medanta Emergency',
+    BloodBankName: 'Medanta Emergency',
     equipment: [
       'Oxygen',
       'First Aid',

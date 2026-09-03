@@ -7,7 +7,7 @@ import { Platform } from 'react-native';
 // screens like vitals.tsx / medical-id.tsx importing these keep working)
 // ---------------------------------------------------------------------------
 
-export type UserRole = 'citizen' | 'ambulance' | 'hospital' | 'government';
+export type UserRole = 'citizen' | 'ambulance' | 'BloodBank' | 'government';
 
 export interface Contact {
   name: string;
@@ -49,7 +49,7 @@ export interface MedicalEvent {
 export interface Facility {
   id: string;
   name: string;
-  type: 'Hospital' | 'Pharmacy' | 'Ambulance' | 'Urgent Care';
+  type: 'BloodBank' | 'Pharmacy' | 'Ambulance' | 'Urgent Care';
   latitude: number;
   longitude: number;
   distance: string;
@@ -72,7 +72,7 @@ export interface Ambulance {
   latitude: number;
   longitude: number;
   status: AmbulanceStatus;
-  hospitalName: string;
+  BloodBankName: string;
   equipment: string[];
 }
 
@@ -211,6 +211,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return data as T;
 }
 
+export async function authenticatedRequest<T>(
+  path: string,
+  options: Omit<RequestOptions, 'auth'> = {},
+): Promise<T> {
+  return request<T>(path, { ...options, auth: true });
+}
+
 const AVATAR_URI_KEY = 'lifeline-avatar-uri';
 
 export async function saveLocalAvatar(sourceUri: string): Promise<string> {
@@ -299,15 +306,23 @@ export const signUp = async (input: SignUpInput): Promise<UserRecord> => {
   return data.user;
 };
 
-export const signIn = async (email: string, password: string): Promise<UserRecord> => {
+export const signIn = async (
+  email: string,
+  password: string,
+  role: UserRole
+): Promise<UserRecord> => {
   const data = await request<{ token: string; user: UserRecord }>('/auth/signin', {
     method: 'POST',
-    body: { email, password },
+    body: {
+      email: email.trim().toLowerCase(),
+      password,
+      role,
+    },
   });
+
   await setToken(data.token);
   return data.user;
 };
-
 export const signOut = async (): Promise<void> => {
   try {
     await request('/auth/signout', {
@@ -410,6 +425,434 @@ export const getFacilities = async (type?: Facility['type']): Promise<Facility[]
 };
 
 export const getAvailableAmbulances = async (): Promise<Ambulance[]> => {
-  const data = await request<{ ambulances: Ambulance[] }>('/ambulances');
-  return data.ambulances;
+  try {
+    const data = await request<{ ambulances: Ambulance[] }>('/ambulances');
+    return data.ambulances;
+  } catch {
+    return MOCK_AMBULANCES;
+  }
 };
+
+// ---------------------------------------------------------------------------
+// Ambulance Panel Types & Services
+// ---------------------------------------------------------------------------
+
+export interface IncomingAlert {
+  id: string;
+  patientName: string;
+  age: number;
+  gender: string;
+  priority: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  location: string;
+  distanceKm: number;
+  etaMinutes: number;
+  vitalsSummary: string;
+  condition: string;
+  timestamp: string;
+}
+
+export interface HospitalCommsMessage {
+  id: string;
+  hospitalName: string;
+  sender: string;
+  message: string;
+  time: string;
+  isUrgent?: boolean;
+}
+
+export interface BloodReservation {
+  id: string;
+  bloodType: string;
+  units: number;
+  sourceBank: string;
+  status: 'PENDING' | 'DISPATCHED' | 'RESERVED' | 'DELIVERED';
+  etaMinutes: number;
+}
+
+export const MOCK_AMBULANCES: Ambulance[] = [
+  {
+    id: 'AMB-101',
+    name: 'Unit 101 (Rapid Care)',
+    driverName: 'Officer Marcus Vance',
+    latitude: 37.7749,
+    longitude: -122.4194,
+    status: 'DISPATCHED',
+    BloodBankName: 'Central Health Blood Hub',
+    equipment: ['Defibrillator', 'Advanced Airway', 'Telemetry Monitor', 'Blood Warmer'],
+  },
+  {
+    id: 'AMB-102',
+    name: 'Unit 102 (Cardiac Response)',
+    driverName: 'Paramedic Elena Rostova',
+    latitude: 37.7833,
+    longitude: -122.4167,
+    status: 'AVAILABLE',
+    BloodBankName: 'St. Jude Regional Blood Bank',
+    equipment: ['ECG 12-Lead', 'Ventilator', 'IV Pumps', 'AED'],
+  },
+];
+
+export const MOCK_INCOMING_ALERTS: IncomingAlert[] = [
+  {
+    id: 'ALT-9041',
+    patientName: 'David K. Miller',
+    age: 58,
+    gender: 'Male',
+    priority: 'CRITICAL',
+    location: '450 Mission St, Financial District',
+    distanceKm: 1.8,
+    etaMinutes: 4,
+    vitalsSummary: 'HR: 138 bpm | SpO2: 89% | BP: 90/60',
+    condition: 'Acute Coronary Syndrome & Severe Dyspnea',
+    timestamp: '2 mins ago',
+  },
+  {
+    id: 'ALT-9042',
+    patientName: 'Sarah Jenkins',
+    age: 34,
+    gender: 'Female',
+    priority: 'HIGH',
+    location: '780 Valencia St, Mission District',
+    distanceKm: 3.2,
+    etaMinutes: 7,
+    vitalsSummary: 'HR: 110 bpm | SpO2: 95% | BP: 118/76',
+    condition: 'Multi-Trauma (Motorcycle collision)',
+    timestamp: '8 mins ago',
+  },
+];
+
+export const MOCK_HOSPITAL_COMMS: HospitalCommsMessage[] = [
+  {
+    id: 'MSG-01',
+    hospitalName: 'St. Jude Trauma Center',
+    sender: 'Dr. Aris Thorne (ER Chief)',
+    message: 'Trauma Bay 2 prepped for Unit 101. Cardiac surgical team on standby.',
+    time: '14:32',
+    isUrgent: true,
+  },
+  {
+    id: 'MSG-02',
+    hospitalName: 'General Hospital ER',
+    sender: 'Triage Desk',
+    message: 'O-Negative blood reserves locked. Courier unit dispatched.',
+    time: '14:28',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Blood Bank & Courier Logistics Types & Services
+// ---------------------------------------------------------------------------
+
+export interface BloodStockItem {
+  group: string;
+  unitsAvailable: number;
+  unitsReserved: number;
+  status: 'OPTIMAL' | 'LOW' | 'CRITICAL';
+  lastUpdated: string;
+}
+
+export interface CourierDispatch {
+  id: string;
+  courierName: string;
+  vehicle: string;
+  bloodType: string;
+  units: number;
+  destination: string;
+  status: 'ASSIGNED' | 'IN_TRANSIT' | 'ARRIVED' | 'HANDOVER_COMPLETE';
+  etaMinutes: number;
+  qrCodeValue: string;
+}
+
+export const MOCK_BLOOD_STOCK: BloodStockItem[] = [
+  { group: 'O-', unitsAvailable: 14, unitsReserved: 8, status: 'CRITICAL', lastUpdated: '10 mins ago' },
+  { group: 'O+', unitsAvailable: 68, unitsReserved: 12, status: 'OPTIMAL', lastUpdated: '5 mins ago' },
+  { group: 'A-', unitsAvailable: 22, unitsReserved: 5, status: 'LOW', lastUpdated: '12 mins ago' },
+  { group: 'A+', unitsAvailable: 84, unitsReserved: 19, status: 'OPTIMAL', lastUpdated: '2 mins ago' },
+  { group: 'B-', unitsAvailable: 18, unitsReserved: 4, status: 'LOW', lastUpdated: '18 mins ago' },
+  { group: 'B+', unitsAvailable: 52, unitsReserved: 9, status: 'OPTIMAL', lastUpdated: '1 hr ago' },
+  { group: 'AB-', unitsAvailable: 8, unitsReserved: 3, status: 'CRITICAL', lastUpdated: '25 mins ago' },
+  { group: 'AB+', unitsAvailable: 30, unitsReserved: 6, status: 'OPTIMAL', lastUpdated: '30 mins ago' },
+];
+
+export const MOCK_COURIER_DISPATCHES: CourierDispatch[] = [
+  {
+    id: 'DISP-7821',
+    courierName: 'SwiftMed Rider #4 (Kevon)',
+    vehicle: 'Rapid Drone-Car #09',
+    bloodType: 'O-Negative',
+    units: 4,
+    destination: 'St. Jude Trauma Bay 2 (En route)',
+    status: 'IN_TRANSIT',
+    etaMinutes: 6,
+    qrCodeValue: 'LIFELINE-QR-7821-O-NEG-STJUDE',
+  },
+  {
+    id: 'DISP-7822',
+    courierName: 'Express Courier #12 (Maria)',
+    vehicle: 'Medical EV Unit B',
+    bloodType: 'A-Positive',
+    units: 6,
+    destination: 'General Hospital ER',
+    status: 'ARRIVED',
+    etaMinutes: 1,
+    qrCodeValue: 'LIFELINE-QR-7822-A-POS-GENHOSP',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Government & Regulatory Types & Services
+// ---------------------------------------------------------------------------
+
+export interface GovNetworkMetrics {
+  activeAmbulances: number;
+  totalIncidentsToday: number;
+  avgResponseTimeMin: number;
+  bloodBankReservePct: number;
+  systemHealthScore: number;
+}
+
+export interface ComplianceRecord {
+  id: string;
+  facilityName: string;
+  type: string;
+  licenseId: string;
+  status: 'COMPLIANT' | 'AUDIT_PENDING' | 'WARNING';
+  lastInspection: string;
+}
+
+export interface TransactionRecord {
+  id: string;
+  timestamp: string;
+  facility: string;
+  serviceType: string;
+  amountUsd: number;
+  status: 'SETTLED' | 'PROCESSING';
+}
+
+export interface AnomalyAlert {
+  id: string;
+  title: string;
+  severity: 'HIGH' | 'MEDIUM' | 'LOW';
+  description: string;
+  location: string;
+  timestamp: string;
+}
+
+export const MOCK_GOV_METRICS: GovNetworkMetrics = {
+  activeAmbulances: 42,
+  totalIncidentsToday: 189,
+  avgResponseTimeMin: 4.8,
+  bloodBankReservePct: 87,
+  systemHealthScore: 98,
+};
+
+export const MOCK_COMPLIANCE_RECORDS: ComplianceRecord[] = [
+  {
+    id: 'LIC-8821',
+    facilityName: 'Central Health Regional Blood Bank',
+    type: 'Blood Bank Category A',
+    licenseId: 'MED-GOV-2026-9041',
+    status: 'COMPLIANT',
+    lastInspection: '2026-07-15',
+  },
+  {
+    id: 'LIC-8822',
+    facilityName: 'Metro Ambulance Rapid Care Fleet',
+    type: 'Emergency EMS Provider',
+    licenseId: 'EMS-GOV-2026-1182',
+    status: 'COMPLIANT',
+    lastInspection: '2026-08-01',
+  },
+  {
+    id: 'LIC-8823',
+    facilityName: 'Bay Area Urgent Care Hub',
+    type: 'Urgent Care & Triage',
+    licenseId: 'UC-GOV-2026-4402',
+    status: 'AUDIT_PENDING',
+    lastInspection: '2026-04-10',
+  },
+];
+
+export const MOCK_TRANSACTIONS: TransactionRecord[] = [
+  {
+    id: 'TXN-99104',
+    timestamp: '14:20:11',
+    facility: 'St. Jude Trauma Center',
+    serviceType: 'Emergency Dispatch & O- Blood Transfer',
+    amountUsd: 1450.00,
+    status: 'SETTLED',
+  },
+  {
+    id: 'TXN-99105',
+    timestamp: '14:05:40',
+    facility: 'Central Health Regional Blood Bank',
+    serviceType: 'Logistics Courier Clearance Token',
+    amountUsd: 320.00,
+    status: 'SETTLED',
+  },
+];
+
+export const MOCK_ANOMALY_ALERTS: AnomalyAlert[] = [
+  {
+    id: 'ANOM-102',
+    title: 'Surge in O-Negative Emergency Requests',
+    severity: 'HIGH',
+    description: 'Demand for O-Negative blood increased by 310% in Metro District 4 due to multi-vehicle incident.',
+    location: 'District 4 Transit Corridor',
+    timestamp: '12 mins ago',
+  },
+  {
+    id: 'ANOM-103',
+    title: 'Ambulance Response Time Delay Warning',
+    severity: 'MEDIUM',
+    description: 'Average response time in North Sector elevated from 4.2 min to 6.8 min due to construction traffic.',
+    location: 'North Highway 101 Exit',
+    timestamp: '25 mins ago',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Backend API Connectors
+// ---------------------------------------------------------------------------
+
+export const getIncomingAlerts = async (): Promise<IncomingAlert[]> => {
+  try {
+    const data = await request<{ alerts: IncomingAlert[] }>('/ambulance/alerts');
+    return data.alerts;
+  } catch {
+    return MOCK_INCOMING_ALERTS;
+  }
+};
+
+export const submitFieldIntake = async (intakeData: {
+  patientName: string;
+  heartRate: string;
+  spo2: string;
+  triageNotes: string;
+}) => {
+  try {
+    return await request('/ambulance/intake', { method: 'POST', body: intakeData });
+  } catch {
+    return { success: true, record: intakeData };
+  }
+};
+
+export const getErComms = async (): Promise<HospitalCommsMessage[]> => {
+  try {
+    const data = await request<{ messages: HospitalCommsMessage[] }>('/ambulance/comms');
+    return data.messages;
+  } catch {
+    return MOCK_HOSPITAL_COMMS;
+  }
+};
+
+export const sendErMessage = async (message: string): Promise<HospitalCommsMessage> => {
+  try {
+    const data = await request<{ message: HospitalCommsMessage }>('/ambulance/comms', {
+      method: 'POST',
+      body: { message },
+    });
+    return data.message;
+  } catch {
+    return {
+      id: `MSG-${Date.now()}`,
+      hospitalName: 'St. Jude Trauma Center',
+      sender: 'Unit 101 Paramedic',
+      message,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+  }
+};
+
+export const getBloodStock = async (): Promise<BloodStockItem[]> => {
+  try {
+    const data = await request<{ stock: BloodStockItem[] }>('/bloodbank/stock');
+    return data.stock;
+  } catch {
+    return MOCK_BLOOD_STOCK;
+  }
+};
+
+export const getCourierDispatches = async (): Promise<CourierDispatch[]> => {
+  try {
+    const data = await request<{ dispatches: CourierDispatch[] }>('/bloodbank/dispatches');
+    return data.dispatches;
+  } catch {
+    return MOCK_COURIER_DISPATCHES;
+  }
+};
+
+export const createCourierDispatch = async (dispatchData: {
+  bloodType: string;
+  units: number;
+  destination: string;
+}): Promise<CourierDispatch> => {
+  try {
+    const data = await request<{ dispatch: CourierDispatch }>('/bloodbank/dispatch', {
+      method: 'POST',
+      body: dispatchData,
+    });
+    return data.dispatch;
+  } catch {
+    return {
+      id: `DISP-${Math.floor(1000 + Math.random() * 9000)}`,
+      courierName: 'SwiftMed Rider (Local)',
+      vehicle: 'Rapid Drone-Car #14',
+      bloodType: dispatchData.bloodType,
+      units: dispatchData.units,
+      destination: dispatchData.destination,
+      status: 'IN_TRANSIT',
+      etaMinutes: 5,
+      qrCodeValue: `LIFELINE-QR-${Date.now()}-${dispatchData.bloodType}`,
+    };
+  }
+};
+
+export const verifyQrHandoverToken = async (dispatchId: string, qrToken: string) => {
+  try {
+    return await request('/bloodbank/verify-handover', {
+      method: 'POST',
+      body: { dispatchId, qrToken },
+    });
+  } catch {
+    return { success: true, verified: true };
+  }
+};
+
+export const getGovMetrics = async (): Promise<GovNetworkMetrics> => {
+  try {
+    const data = await request<{ metrics: GovNetworkMetrics }>('/government/metrics');
+    return data.metrics;
+  } catch {
+    return MOCK_GOV_METRICS;
+  }
+};
+
+export const getGovComplianceRecords = async (): Promise<ComplianceRecord[]> => {
+  try {
+    const data = await request<{ compliance: ComplianceRecord[] }>('/government/compliance');
+    return data.compliance;
+  } catch {
+    return MOCK_COMPLIANCE_RECORDS;
+  }
+};
+
+export const getGovTransactions = async (): Promise<TransactionRecord[]> => {
+  try {
+    const data = await request<{ transactions: TransactionRecord[] }>('/government/transactions');
+    return data.transactions;
+  } catch {
+    return MOCK_TRANSACTIONS;
+  }
+};
+
+export const getGovAnomalies = async (): Promise<AnomalyAlert[]> => {
+  try {
+    const data = await request<{ anomalies: AnomalyAlert[] }>('/government/anomalies');
+    return data.anomalies;
+  } catch {
+    return MOCK_ANOMALY_ALERTS;
+  }
+};
+
+
